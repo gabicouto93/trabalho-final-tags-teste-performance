@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Executar testes com npm test",
+			"type": "shell",
+			"command": "npm test",
+			"problemMatcher": [
+				"$mocha"
+			],
+			"group": "test"
+		}
+	]
+}
