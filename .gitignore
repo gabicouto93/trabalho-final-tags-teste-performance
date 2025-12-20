@@ -1,3 +1,18 @@
 node_modules/
-mochawesome-report/
 .env
+
+# Logs
+server.log
+*.log
+npm-debug.log
+
+# Executáveis e Binários
+k6.exe
+
+# Coverage e Build
+coverage/
+dist/
+
+# Sistema Operacional / Editor
+.DS_Store
+.vscode/

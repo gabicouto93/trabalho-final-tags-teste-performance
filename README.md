@@ -1,242 +1,195 @@
-# Banco API - Documentação
+# Teste de performance - Documentação
 
-> **Este projeto foi desenvolvido para trabalho final da disciplina de API da pós-graduação em Automação de Teste de Software.**
+> **Este projeto foi desenvolvido para o trabalho final da disciplina de Automação de Testes de Performance da pós-graduação em Automação de Teste de Software do Julio de Lima em parceria com a faculdade Facint.**
 
 ## Visão Geral
 
-Este projeto é uma API de banco digital moderna, com arquitetura REST e GraphQL, autenticação JWT, operações de contas e transferências, e foco em qualidade de código e testes automatizados. O repositório já está pronto para integração contínua (CI/CD) no GitHub Actions, com pipeline de testes robusta e relatórios automáticos.
+Este projeto consiste em uma API de banco digital moderna, desenvolvida para fins didáticos, suportando arquitetura REST e GraphQL. O sistema oferece funcionalidades essenciais como autenticação via JWT, gerenciamento de contas e realização de transferências financeiras.
 
-- **API REST**: Porta `3000` — endpoints de contas, login e transferências.
-- **API GraphQL**: Porta `3001` — queries e mutations para operações bancárias.
-- **Testes Automatizados**: Cobertura unitária e de integração (REST e GraphQL), com mocks para garantir independência de infraestrutura externa.
-- **Pipeline CI/CD**: Workflow GitHub Actions executa testes automaticamente a cada push/pull request.
+O foco principal deste repositório é a demonstração de **Testes de Performance** utilizando a ferramenta **K6**.
+
+Atualmente, o projeto conta com:
+- **API REST e GraphQL** funcionais.
+- **Testes de Performance** implementados com K6, cobrindo cenários de carga, estresse e fluxos completos de usuário.
+- **Relatórios de Performance** gerados automaticamente em HTML.
 
 ---
 
-## Testes Automatizados e Pipeline CI/CD
+## Testes de Performance com K6
 
-O projeto possui uma pipeline de testes automatizados completa, garantindo qualidade e estabilidade do código em cada alteração.
+Este projeto utiliza o **K6** para a execução de testes de performance, validando a robustez e escalabilidade da API. Abaixo, detalhamos como os principais conceitos do K6 foram aplicados no código.
 
-### Ferramentas Utilizadas
-- **Mocha**: Framework de testes.
-- **Chai**: Biblioteca de asserções.
-- **Supertest**: Testes de integração HTTP (REST e GraphQL).
-- **Sinon**: Mocks e stubs para isolamento de dependências.
-- **Mochawesome**: Geração de relatórios HTML/JSON dos testes.
-- **GitHub Actions**: Execução automática dos testes no CI/CD.
+### 1. Thresholds (Limiares)
+Definem os critérios de aceitação para o teste. Se as métricas ultrapassarem esses limites, o teste falha.
+*Arquivo: `tests/login.js`*
+```javascript
+thresholds: {
+    http_req_duration: ['p(95)<3000', 'max<5000'], // 95% das requisições devem ser < 3s
+    http_req_failed: ['rate<0.01'],   // Taxa de erro deve ser inferior a 1%
+},
+```
 
-### Tipos de Testes
-- **Unitários**: Cobrem controllers e services, com mocks dos serviços e banco de dados.
-- **Integração REST**: Simulam requisições HTTP reais, com autenticação JWT e respostas mockadas.
-- **Integração GraphQL**: Testam queries e mutations usando ApolloServer Express, com schema e resolvers mockados.
-- **Cobertura de erros, autenticação, múltiplos cenários e respostas inválidas.**
+### 2. Checks (Verificações)
+Validam se a resposta da requisição está correta (status code, corpo da resposta, etc.). Diferente dos thresholds, checks não falham o teste automaticamente, apenas registram o sucesso/falha.
+*Arquivo: `tests/fluxo-completo.js`*
+```javascript
+check(res, {
+    'status contas é 200': (r) => r.status === 200,
+    'lista de contas não vazia': (r) => r.json().contas && r.json().contas.length >= 2
+});
+```
 
-### Como Executar os Testes Localmente
+### 3. Helpers
+Funções auxiliares reutilizáveis para manter o código limpo, como a função de login que obtém o token.
+*Arquivo: `tests/fluxo-completo.js`*
+```javascript
+import { obterToken } from '../helpers/autenticacao.js';
+// ...
+const token = obterToken(user);
+```
 
-1. Instale as dependências:
-   ```bash
-   npm install
-   ```
-2. Execute todos os testes:
-   ```bash
-   npm test
-   ```
-3. O relatório será gerado automaticamente em `mochawesome-report/index.html`. Basta abrir esse arquivo no navegador para visualizar o resultado detalhado.
+### 4. Trends (Tendências)
+Métricas personalizadas para acompanhar dados específicos, como o tempo de duração de um fluxo de login.
+*Arquivo: `tests/login.js`*
+```javascript
+import { Trend } from 'k6/metrics';
+const loginDuration = new Trend('login_duration');
+// ...
+loginDuration.add(res.timings.duration);
+```
 
-### Como Executar os Testes no GitHub (CI/CD)
-- Basta fazer push ou pull request para o repositório. O workflow `.github/workflows/nodejs.yml` executa `npm install` e `npm test` automaticamente.
-- O status dos testes pode ser acompanhado na aba **Actions** do GitHub.
-- Para rodar manualmente, clique em **Actions > Node.js CI > Run workflow**.
+### 5. Faker
+Geração de dados dinâmicos e aleatórios para os testes, evitando dados estáticos repetitivos.
+*Arquivo: `tests/login.js`*
+```javascript
+import { randomUUID } from '../utils/faker.js';
+// ...
+const requestId = randomUUID();
+```
+
+### 6. Variável de Ambiente
+Permite configurar parâmetros do teste (como a URL base) externamente, facilitando a execução em diferentes ambientes (local, dev, prod).
+*Arquivo: `utils/variaveis.js`*
+```javascript
+export const BASE_URL = __ENV.BASE_URL || configLocal.baseUrl;
+```
+
+### 7. Stages (Estágios)
+Definem o perfil de carga do teste, simulando o comportamento real de usuários (Ramp-up, Platô, Ramp-down).
+*Arquivo: `tests/login.js`*
+```javascript
+stages: [
+    { duration: '10s', target: 50 }, // Sobe para 50 VUs em 10s
+    { duration: '30s', target: 50 }, // Mantém 50 VUs por 30s
+    { duration: '10s', target: 0 },  // Desce para 0 VUs em 10s
+],
+```
+
+### 8. Reaproveitamento de Resposta
+Captura dados de uma resposta (ex: ID de uma conta) para usar na requisição seguinte, simulando um fluxo real.
+*Arquivo: `tests/fluxo-completo.js`*
+```javascript
+if (res.status === 200) {
+    const contas = res.json().contas;
+    contaOrigemId = contas[0].id; // Captura ID para usar na transferência
+}
+```
+
+### 9. Uso de Token de Autenticação
+Injeção do token JWT no cabeçalho das requisições para acessar rotas protegidas.
+*Arquivo: `tests/fluxo-completo.js`*
+```javascript
+const headers = {
+    'Authorization': `Bearer ${data.token}`,
+    'Content-Type': 'application/json',
+};
+```
+
+### 10. Data-Driven Testing
+Execução de testes com base em uma massa de dados externa (arquivo JSON), permitindo testar com múltiplos usuários diferentes.
+*Arquivo: `tests/login.js`*
+```javascript
+const usuarios = new SharedArray('usuarios', function () {
+    return JSON.parse(open('../fixtures/usuarios.json'));
+});
+// ...
+const user = usuarios[Math.floor(Math.random() * usuarios.length)];
+```
+
+### 11. Groups (Grupos)
+Organizam o script de teste em blocos lógicos, facilitando a leitura e a análise dos resultados por seção.
+*Arquivo: `tests/fluxo-completo.js`*
+```javascript
+group('1. Consulta Contas', function () {
+    // Requisições de consulta
+});
+group('2. Realiza Transferência', function () {
+    // Requisições de transferência
+});
+```
 
 ### Observações Importantes
-- Todos os testes são mockados: não dependem de banco de dados real ou serviços externos.
-- O ambiente de testes é estável e reproduzível localmente e no CI.
-- O relatório Mochawesome facilita a análise visual dos resultados.
-- O projeto segue boas práticas de versionamento: não versiona `node_modules` nem relatórios gerados.
+- **Foco em Performance**: Os testes visam validar a capacidade de carga e estresse da API.
+- **Relatórios HTML**: Cada execução gera um relatório detalhado (ex: `login-report.html`) na raiz do projeto.
+- **Ambiente Local**: Os testes são executados contra a API rodando localmente (`localhost:3000`).
 
 ---
-
-## Regras de Negócio
-
-### Serviço de Contas
-
-#### Regras para obter contas:
-
-- A consulta de contas retorna uma lista paginada de contas, com um limite por página e uma página especificada.
-
-#### Regras para obter conta por ID:
-
-- A consulta de uma conta por ID deve retornar os detalhes da conta correspondente.
-
-### Serviço de Autenticação de Usuário
-
-#### Regras de autenticação:
-
-- O nome de usuário e a senha são obrigatórios.
-
-- O sistema valida se o nome de usuário e a senha fornecidos são corretos.
-
-- Se as credenciais estiverem incorretas, o sistema retorna um erro informando que o usuário ou senha são inválidos.
-
-#### Regras de geração de token:
-
-- O token gerado deve ter um tempo de expiração de 1 hora.
-
-#### Regras de verificação de token:
-
-- O token de autenticação deve ser verificado para garantir que seja válido.
-
-- Se o token for inválido ou expirado, o sistema retorna um erro de autenticação.
-
-### Serviço de Transferências
-
-#### Regras para realizar transferência:
-
-- O valor mínimo para transferências é de R$10,00.
-
-- Transferências acima de R$5.000,00 requerem um token de autenticação (token específico '123456').
-
-- As contas de origem e destino devem estar ativas.
-
-- A conta de origem deve ter saldo suficiente para realizar a transferência.
-
-#### Regras para buscar transferências:
-
-- As transferências podem ser consultadas de forma paginada, com limite de itens por página e página especificada.
-
-- Deve ser possível consultar todas as transferências realizadas.
-
-#### Regras para atualizar transferências:
-
-- Transferências podem ser atualizadas, mas o valor de atualização não pode ser inferior a R$10,00.
-
-- Deve ser validado se as contas de origem e destino existem e estão ativas.
-
-- O saldo da conta de origem deve ser verificado antes de realizar a atualização.
-
-- Transferências acima de R$5.000,00 também requerem autenticação.
-
-#### Regras para modificar transferências:
-
-- O valor de uma transferência pode ser modificado, mas o novo valor deve ser superior ou igual a R$10,00.
-
-- As contas de origem e destino devem estar ativas e existir.
-
-- O saldo das contas de origem e destino deve ser verificado antes da modificação.
-
-#### Regras para remover transferências:
-
-- A remoção de uma transferência deve reverter os saldos das contas de origem e destino.
-
-- Caso a transferência não seja encontrada, o sistema retorna um erro.
-
-- A conta de origem e a conta de destino devem existir e estar ativas.
-
-#### Outras Regras Gerais
-
-- Em todos os casos de falha (como saldo insuficiente ou contas inativas), o sistema deve retornar uma mensagem de erro detalhada e apropriada.
-
-- As transferências são realizadas de forma síncrona e qualquer falha no processo de transferência gera um erro com uma mensagem explicativa.
 
 ## Pré-requisitos
 
 Antes de iniciar, certifique-se de que você tenha as seguintes ferramentas instaladas:
 
-- [Node.js](https://nodejs.org/)
-- [MySQL](https://www.mysql.com/)
-- Gerenciador de pacotes npm (vem com o Node.js)
+- [Node.js](https://nodejs.org/) (v14 ou superior)
+- [MySQL](https://www.mysql.com/) (para o banco de dados da API)
+- **K6**: https://k6.io/docs/get-started/installation/.
 
 ---
 
-## Instruções de Configuração
+## Configuração do Ambiente (API)
 
-### 1. Variáveis de Ambiente (`.env`)
-Crie um arquivo `.env` na raiz do projeto com o seguinte conteúdo:
+### 1. Banco de Dados
+Crie um banco de dados MySQL chamado `banco` e configure as tabelas conforme o script SQL (verifique se o serviço do MySQL está rodando).
 
-```env
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=root
-DB_NAME=banco
-JWT_SECRET=sua_chave_secreta
-PORT=3000
-GRAPHQLPORT=3001
-```
-
-### 2. Inicialização do Banco de Dados
-
-1. Crie o banco de dados e suas tabelas executando o script abaixo no MySQL:
-   ```sql
-   CREATE DATABASE banco;
-   USE banco;
-
-   CREATE TABLE contas (
-       id INT AUTO_INCREMENT PRIMARY KEY,
-       titular VARCHAR(100) NOT NULL,
-       saldo DECIMAL(10, 2) NOT NULL,
-       ativa BOOLEAN DEFAULT TRUE
-   );
-
-   CREATE TABLE transferencias (
-       id INT AUTO_INCREMENT PRIMARY KEY,
-       conta_origem_id INT NOT NULL,
-       conta_destino_id INT NOT NULL,
-       valor DECIMAL(10, 2) NOT NULL,
-       data_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
-       autenticada BOOLEAN DEFAULT FALSE,
-       FOREIGN KEY (conta_origem_id) REFERENCES contas(id),
-       FOREIGN KEY (conta_destino_id) REFERENCES contas(id)
-   );
-
-   CREATE TABLE usuarios (
-       id INT AUTO_INCREMENT PRIMARY KEY,
-       username VARCHAR(50) NOT NULL UNIQUE,
-       senha VARCHAR(255) NOT NULL
-   );
-   ```
-
-2. Verifique se as tabelas foram criadas corretamente:
-   ```sql
-   USE banco;
-   SHOW TABLES;
-   ```
+### 2. Variáveis de Ambiente
+Crie um arquivo `.env` na raiz com as configurações do banco (ex: `DB_HOST=localhost`, `DB_USER=root`, etc.).
 
 ---
 
-## Instruções de Execução
+## Executando a API
 
-### 1. Instalar Dependências
-Execute o comando abaixo na raiz do projeto:
+1. Instale as dependências do projeto:
+   ```bash
+   npm install
+   ```
+
+2. Inicie a API REST (necessária para os testes):
+   ```bash
+   npm run rest-api
+   ```
+   *A API estará disponível em http://localhost:3000*
+
+---
+
+## Executando os Testes de Performance
+
+### Opção A: Script Automatizado (Recomendado)
+Utilize o script `run_with_report.sh` para rodar o teste e gerar o relatório HTML automaticamente.
+
+**No Terminal (Git Bash / Linux):**
 ```bash
-npm install
+# Sintaxe: ./run_with_report.sh <arquivo_teste> <nome_relatorio>
+bash run_with_report.sh tests/login.js login-report.html
 ```
 
-### 2. Executar APIs
-- Para iniciar a **API REST**:
-  ```bash
-  npm run rest-api
-  ```
-- Para iniciar a **API GraphQL**:
-  ```bash
-  npm run graphql-api
-  ```
+### Opção B: Task do VS Code
+1. Abra o arquivo de teste desejado (ex: `tests/fluxo-completo.js`).
+2. Pressione `Ctrl+Shift+P` (ou `F1`).
+3. Digite `Run Task` e selecione **K6: Run Current File with Report**.
 
----
-
-## Serviços Disponíveis Após a Inicialização
-
-### ApolloServer
-Depois de iniciar a API GraphQL, o ApolloServer estará disponível na porta `3001`. Ele oferece uma interface interativa no endereço [http://localhost:3001/graphql](http://localhost:3001/graphql), onde é possível explorar o schema, testar queries e mutações, e visualizar resultados em tempo real.
-
-O ApolloServer é uma biblioteca amplamente utilizada para implementar servidores GraphQL. Ele simplifica o desenvolvimento, fornecendo suporte para definir schemas, resolvers, autenticação, entre outros recursos.
-
-### Swagger
-Após a inicialização da API REST, a documentação interativa estará disponível no Swagger, no endereço [http://localhost:3000/api-docs](http://localhost:3000/api-docs). Essa documentação permite:
-- Explorar os endpoints disponíveis.
-- Testar requisições diretamente pelo navegador.
-- Obter informações detalhadas sobre parâmetros, respostas e erros.
-
-Para visualizar o Swagger, certifique-se de que a API REST esteja em execução.
+### Opção C: Manualmente
+```bash
+./k6.exe run tests/login.js
+```
 
 ---
 
@@ -276,47 +229,15 @@ project/
 │   ├── schema/
 │   │   └── index.js
 │   ├── typeDefs.js
+├── tests/
+│   ├── contas.js
+│   ├── estresse-extrato.js
+│   ├── fluxo-completo.js
+│   ├── login.js
+│   └── transferencias.js
 ├── config/
 │   └── serverConfig.js
 ├── .env
 ├── package.json
 └── README.md
 ```
-
----
-
-## GraphQL API
-
-### Endpoints
-- URL da API GraphQL: `http://localhost:3001/graphql`
-
-### Definições do Schema (`typeDefs`)
-- **Queries**:
-  - `contas`: Retorna a lista de contas.
-  - `transferencias(page: Int, limit: Int)`: Retorna uma lista paginada de transferências.
-- **Mutations**:
-  - `login(username: String!, senha: String!)`: Autentica um usuário e retorna um token JWT.
-  - `transferir(contaOrigem: Int!, contaDestino: Int!, valor: Float!, mfaToken: String!)`: Realiza uma transferência.
-
-### Exemplo de Requisição com `curl`
-
-#### Consulta de Contas
-```bash
-curl -X POST http://localhost:3001/graphql -H "Content-Type: application/json" -d '{"query": "{ contas { id titular saldo ativa } }"}'
-```
-
-#### Transferência de Fundos
-```bash
-curl -X POST http://localhost:3001/graphql -H "Content-Type: application/json" -d '{"query": "mutation { transferir(contaOrigem: 1, contaDestino: 2, valor: 100.0, mfaToken: \"123456\") }"}'
-```
-
----
-
-## REST API
-
-### Endpoints
-Base URL: `http://localhost:3000`
-
-- **GET /contas**: Retorna todas as contas.
-- **POST /login**: Realiza a autenticação de um usuário.
-- **POST /transferencias**: Realiza uma transferência entre contas.

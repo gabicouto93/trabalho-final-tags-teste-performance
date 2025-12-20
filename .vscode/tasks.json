@@ -9,6 +9,17 @@
 				"$mocha"
 			],
 			"group": "test"
+		},
+		{
+			"label": "K6: Run Current File with Report",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"run_with_report.sh",
+				"${file}",
+				"${fileBasenameNoExtension}-report.html"
+			],
+			"group": "test"
 		}
 	]
 }
